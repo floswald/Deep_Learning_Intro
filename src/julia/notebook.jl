@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.19.40
+# v0.19.46
 
 using Markdown
 using InteractiveUtils
@@ -112,8 +112,8 @@ md"""
 # ╔═╡ 96a35126-5da3-4923-a77f-153ddafbc898
 function sampler(id::Symbol,n,cparams)
 	dims = 2
-	X = rand(n,dims)
-	Y = [f(id,X[i,1],X[i,2],cparams[id]...) for i in 1:n]
+	X = rand(Float32,n,dims)
+	Y = Float32[f(id,X[i,1],X[i,2],cparams[id]...) for i in 1:n]
 	data = [] # empty array
 	for i in 1:n
 		push!(data,(X[i,:], Y[i]))
@@ -130,7 +130,15 @@ function to build a Flux Model:
 """
 
 # ╔═╡ a6c52133-537a-4558-938a-e6578c235729
-function build_model(dim_in; neurons = 50)
+function shallow_model(dim_in; neurons = 50)
+    return Chain(
+			Dense(dim_in, neurons,relu),
+			Dense(neurons, neurons,relu),
+			Dense(neurons, 1))
+end
+
+# ╔═╡ 565bacf1-30fa-471d-abc7-f57aa5d229b6
+function deep_model(dim_in; neurons = 25)
     return Chain(
 			Dense(dim_in, neurons,relu),
 			Dense(neurons, neurons,relu),  # defines network architecture
@@ -143,21 +151,21 @@ end
 md"get a model"
 
 # ╔═╡ be0597ee-bac1-4809-8826-2fc87c729c86
-m = build_model(2)  # 2 input dims
+m = shallow_model(2)  # 2 input dims
 
-# ╔═╡ 585494a7-be9e-446b-8edc-db110bb89d77
-data = sampler(:continuous,2,cparams)
+# ╔═╡ 85e650a1-2fa2-477f-ac4d-a50c28323397
+m2 = deep_model(2)
 
 # ╔═╡ 2d1a171d-6a0d-427c-b927-6985c0f12a27
-function train_id(id,n,cparams)
+function train_id(id,n,cparams,modelbuilder)
 	# @info "training for $id function"
 	train_set = sampler(id,n,cparams)   # training data
-	model = build_model(2)
+	model = modelbuilder(2)
 	para = Flux.params(model)  # reference to parameters
-	opt = ADAM(0.001)  # optimizer with certain learning rate
+	opt = ADAM(0.01)  # optimizer with certain learning rate
 	opt_state = Flux.setup(opt, model)
 	loss(x,y) = Flux.mse(x,y)
-	for epoch in 1:10
+	for epoch in 1:100
 		for data in train_set
 		  # Unpack this element (for supervised training):
 		  input, label = data
@@ -178,16 +186,16 @@ function train_id(id,n,cparams)
 end
 
 # ╔═╡ 0b76494a-71c3-4410-aaa7-8d48594147b3
-train_id(:oscillatory,10,cparams)
+train_id(:oscillatory,10,cparams, deep_model)
 
 # ╔═╡ 581891dd-7eca-4ecb-8e5d-9a138a331090
-train_id(:continuous,10,cparams)
+train_id(:continuous,10,cparams, shallow_model)
 
 # ╔═╡ 9d95a867-8129-4e53-8c78-b2abfeb9194a
 function pred_error(id,cparams,m::Flux.Chain)
 	N = 1000 # num of test points
 	nd = 2
-	X = rand(N,nd) 
+	X = rand(Float32,N,nd) 
 	[f(id,X[i,1],X[i,2],cparams[id]...)  for i in 1:N] .- m(X')[:]	
 end
 
@@ -195,7 +203,7 @@ end
 function plot_pred(id,cparams,m::Flux.Chain)
 	N = 100 # num of plot points
 	nd = 2
-	X = rand(N,nd) 
+	X = rand(Float32,N,nd) 
 	truth = [f(id,X[i,1],X[i,2],cparams[id]...)  for i in 1:N] 
 	pred = m(X')[:]	
 	scatter(X[:,1],X[:,2],truth,label = "truth", markershape = :star)
@@ -208,10 +216,10 @@ md"""
 """
 
 # ╔═╡ ed2c2a7c-06b6-492e-a13a-a7132dd8150a
-function train_ns(cparams::Dict;ns = (10,50,100,500))
+function train_ns(cparams::Dict;ns = (10,50,100,500), modelbuilder)
 	models = OrderedDict(
 		k => OrderedDict(
-			n => train_id(k,n,cparams) for n in ns)
+			n => train_id(k,n,cparams,modelbuilder) for n in ns)
 		for (k,v) in cparams)
 	errors = OrderedDict(
 		k => OrderedDict(
@@ -220,24 +228,36 @@ function train_ns(cparams::Dict;ns = (10,50,100,500))
 	Dict(:models => models, :errors => errors)
 end
 
-# ╔═╡ 6ee4f843-8d85-4249-a550-aebfe10064ae
-train_id(:gaussian, 10, cparams)
-
 # ╔═╡ dcf5c85c-032e-4190-9ecf-079ab8209876
-x = train_ns(cparams)
+x_shallow = train_ns(cparams, modelbuilder =  shallow_model )
 
 # ╔═╡ dca2038c-d39a-41ee-94d7-4b17585c9b77
 md"""
-## make a plot of predictions
+# The Shallow Model
+
+## let's look at a plot of predictions
 
 plot 100 points from truth and approximoation and see how they line up
 """
+
+# ╔═╡ 8b7d1da2-24f7-4d90-96ec-19bc38da930f
+md"""
+## shallow model: error plot
+
+"""
+
+# ╔═╡ fa261ca4-8235-4cfa-9314-a79627a15315
+md"""
+# The Deep Model
+"""
+
+# ╔═╡ dd3abe7c-e246-4f19-b471-115b0709c902
+x_deep = train_ns(cparams, modelbuilder =  deep_model )
 
 # ╔═╡ b83b4617-4278-42c2-a147-b81f558d8d33
 function plot_preds(models::OrderedDict,id::Symbol,cparams)
 	plts = Any[]  # empty array
 	
-	X = rand(100,2)
 	xns = collect(keys(models[id]))
 	
 	mods =  models[id]
@@ -250,14 +270,17 @@ function plot_preds(models::OrderedDict,id::Symbol,cparams)
 	plot(plts...) 
 end
 
-# ╔═╡ 39939d09-4362-41c3-b00d-6f2134c0e13a
-x[:errors]
+# ╔═╡ bed76efb-6e79-440d-8168-dc5c88d99944
+plot_preds(x_shallow[:models],:oscillatory,cparams)
 
-# ╔═╡ 8b7d1da2-24f7-4d90-96ec-19bc38da930f
-md"""
-## make a plot of errors
+# ╔═╡ 68bacd6f-0843-4c9d-ba64-c8cbed16d25f
+plot_preds(x_shallow[:models],:discontinuous,cparams)
 
-"""
+# ╔═╡ e4447542-f8f2-43b4-b513-f008d39afc59
+plot_preds(x_shallow[:models],:gaussian,cparams)
+
+# ╔═╡ 53572c00-d198-48d7-bfe4-7a545ecfa73f
+plot_preds(x_shallow[:models],:product_peak,cparams)
 
 # ╔═╡ df618f1d-4aa6-4326-b573-580ff9e63298
 function plot_errors(errors::OrderedDict)
@@ -281,7 +304,10 @@ function plot_errors(errors::OrderedDict)
 end
 
 # ╔═╡ 3d40a59f-44ab-47a1-8cdf-9dfa7bbe1b9c
-plot_errors(x[:errors])
+plot_errors(x_shallow[:errors])
+
+# ╔═╡ 54f566b8-9f31-43d5-bc12-f726a1d6373c
+plot_errors(x_deep[:errors])
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -302,7 +328,7 @@ Plots = "~1.40.8"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.10.4"
+julia_version = "1.10.5"
 manifest_format = "2.0"
 project_hash = "b3d550511ab9a5027f2bd1038146da637f30e0ac"
 
@@ -1841,7 +1867,7 @@ version = "0.15.2+0"
 [[deps.libblastrampoline_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "8e850b90-86db-534c-a0d3-1478176c7d93"
-version = "5.8.0+1"
+version = "5.11.0+0"
 
 [[deps.libdecor_jll]]
 deps = ["Artifacts", "Dbus_jll", "JLLWrappers", "Libdl", "Libglvnd_jll", "Pango_jll", "Wayland_jll", "xkbcommon_jll"]
@@ -1930,23 +1956,29 @@ version = "1.4.1+1"
 # ╠═96a35126-5da3-4923-a77f-153ddafbc898
 # ╟─24b0078b-2631-4249-99a9-046813bb7891
 # ╠═a6c52133-537a-4558-938a-e6578c235729
+# ╠═565bacf1-30fa-471d-abc7-f57aa5d229b6
 # ╟─e34541c6-ff27-4f0e-9d75-cd3fab431ab7
 # ╠═be0597ee-bac1-4809-8826-2fc87c729c86
-# ╠═0b76494a-71c3-4410-aaa7-8d48594147b3
-# ╠═585494a7-be9e-446b-8edc-db110bb89d77
-# ╠═581891dd-7eca-4ecb-8e5d-9a138a331090
+# ╠═85e650a1-2fa2-477f-ac4d-a50c28323397
 # ╠═2d1a171d-6a0d-427c-b927-6985c0f12a27
+# ╠═0b76494a-71c3-4410-aaa7-8d48594147b3
+# ╠═581891dd-7eca-4ecb-8e5d-9a138a331090
 # ╠═9d95a867-8129-4e53-8c78-b2abfeb9194a
 # ╠═45b81beb-eb19-4ee0-a793-c35fb119588f
 # ╟─40aefe24-98b7-4b34-97ff-8cf876edd987
 # ╠═ed2c2a7c-06b6-492e-a13a-a7132dd8150a
-# ╠═6ee4f843-8d85-4249-a550-aebfe10064ae
 # ╠═dcf5c85c-032e-4190-9ecf-079ab8209876
 # ╟─dca2038c-d39a-41ee-94d7-4b17585c9b77
-# ╠═b83b4617-4278-42c2-a147-b81f558d8d33
-# ╠═3d40a59f-44ab-47a1-8cdf-9dfa7bbe1b9c
-# ╠═39939d09-4362-41c3-b00d-6f2134c0e13a
+# ╠═bed76efb-6e79-440d-8168-dc5c88d99944
+# ╠═68bacd6f-0843-4c9d-ba64-c8cbed16d25f
+# ╠═e4447542-f8f2-43b4-b513-f008d39afc59
+# ╠═53572c00-d198-48d7-bfe4-7a545ecfa73f
 # ╟─8b7d1da2-24f7-4d90-96ec-19bc38da930f
+# ╠═3d40a59f-44ab-47a1-8cdf-9dfa7bbe1b9c
+# ╟─fa261ca4-8235-4cfa-9314-a79627a15315
+# ╠═dd3abe7c-e246-4f19-b471-115b0709c902
+# ╠═54f566b8-9f31-43d5-bc12-f726a1d6373c
+# ╠═b83b4617-4278-42c2-a147-b81f558d8d33
 # ╠═df618f1d-4aa6-4326-b573-580ff9e63298
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
